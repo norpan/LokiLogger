@@ -150,17 +150,25 @@ defmodule LokiLogger do
         :noop
 
       {:ok, %HTTPoison.Response{status_code: status_code, body: body}} ->
-        IO.puts(
-          inspect(
-            output
-            |> List.keysort(1)
-            |> Enum.reverse(),
-            pretty: true
+        # Don't crash for out of order messages
+        # While messages are sorted within the buffer, this can happen if the first message
+        # of one batch is earlier than the last message of the previuos batch
+        # It's better to drop one message than to have logging crash.
+        if status_code == 400 and String.contains?(body, "ignored, reason: 'entry out of order'") do
+          :noop
+        else
+          IO.puts(
+            inspect(
+              output
+              |> List.keysort(1)
+              |> Enum.reverse(),
+              pretty: true
+            )
           )
-        )
 
-        raise "unexpected status code from loki backend #{status_code}" <>
-                Exception.format_exit(body)
+          raise "unexpected status code from loki backend #{status_code}" <>
+                  Exception.format_exit(body)
+        end
 
       {:error, %HTTPoison.Error{reason: reason}} ->
         raise "http error from loki backend " <> Exception.format_exit(reason)
